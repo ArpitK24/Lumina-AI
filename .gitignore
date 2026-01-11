@@ -1,0 +1,33 @@
+# Sensitive Data
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Python / Backend
+backend/venv/
+backend/.venv/
+**/__pycache__/
+*.py[cod]
+*$py.class
+backend/.pytest_cache/
+backend/alembic/versions/*
+!backend/alembic/versions/.gitkeep
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+.eslintcache
+*.log
+
+# Database
+*.db
+*.sqlite3
+
+# OS Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
