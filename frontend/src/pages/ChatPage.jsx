@@ -208,7 +208,7 @@ const ChatPage = () => {
                 }
 
                 setMessages(prev => prev.map(m =>
-                  m.id === aiMsgId ? { ...m, content: responseText || "Typing...", thinking: thinking } : m
+                  m.id === aiMsgId ? { ...m, content: responseText, thinking: thinking } : m
                 ));
               }
 
@@ -360,7 +360,13 @@ const ChatPage = () => {
                           <div className="thinking-text">{msg.thinking}</div>
                         </div>
                       )}
-                      <div className="message-text">{msg.content}</div>
+                      <div className="message-text">
+                        {msg.isStreaming && !msg.content ? (
+                          <div className="typing-dots">
+                            <span></span><span></span><span></span>
+                          </div>
+                        ) : msg.content}
+                      </div>
                     </div>
                   </div>
                 </div>

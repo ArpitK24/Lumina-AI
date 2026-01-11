@@ -32,8 +32,13 @@ class AIService:
 
     async def get_response(self, prompt: str, model_type: str = "gemini", thinking_mode: bool = False):
         try:
-            # Extreme conciseness
-            system_instr = "You are Lumina AI. Answer in a human-like, extremely brief manner. Max 1-2 paragraphs. Be very direct. No long lists."
+            # Warmer, more human personality
+            system_instr = (
+                "You are Lumina AI, a warm and empathetic assistant. "
+                "Speak like a helpful friend—keep it conversational, avoid sounding like a textbook. "
+                "Be concise but meaningful. If asked a simple question, give a short, direct, and human answer. "
+                "No long bulleted lists unless explicitly requested."
+            )
             
             if thinking_mode:
                 full_prompt = f"{system_instr} Provide your reasoning in a <thinking> block and your actual response after it.\n\nUser: {prompt}"
@@ -43,7 +48,7 @@ class AIService:
             if model_type == "gemini" and self.gemini_enabled:
                 response = await self.gemini_model.generate_content_async(full_prompt)
                 if not response.parts:
-                    return {"response": "The AI response was blocked by safety filters.", "thinking": None}
+                    return {"response": "I'm sorry, I can't answer that right now due to safety filters.", "thinking": None}
                 return self._parse_thinking(response.text)
             
             elif model_type == "openai" and self.openai_enabled:
@@ -53,18 +58,22 @@ class AIService:
                 )
                 return self._parse_thinking(response.choices[0].message.content)
             
-            return {"response": "AI model or key unavailable.", "thinking": None}
+            return {"response": "My AI brain isn't fully connected right now. Please check your config.", "thinking": None}
             
         except Exception as e:
             print(f"AI Service Error: {str(e)}")
-            return {"response": f"Error: {str(e)}", "thinking": None}
+            return {"response": f"I hit a snag: {str(e)}", "thinking": None}
 
     async def stream_response(self, prompt: str, model_type: str = "gemini", thinking_mode: bool = False):
         try:
-            # Extreme conciseness for streaming
-            system_instr = "You are Lumina AI. Be extremely concise. Give a brief summary (max 3-5 sentences). No encyclopedic info. No lists."
+            # Warm and conversational instructions for streaming
+            system_instr = (
+                "You are Lumina AI, a friendly and empathetic assistant. "
+                "Be brief, direct, and conversational. Avoid being encyclopedic. "
+                "Sound human, not robotic. Max 2-3 short paragraphs."
+            )
             if thinking_mode:
-                full_prompt = f"{system_instr} Put step-by-step reasoning in a <thinking> block, then your final brief answer.\n\nUser: {prompt}"
+                full_prompt = f"{system_instr} Put your step-by-step reasoning in a <thinking> block, then your final friendly answer.\n\nUser: {prompt}"
             else:
                 full_prompt = f"{system_instr}\n\nUser: {prompt}"
 
