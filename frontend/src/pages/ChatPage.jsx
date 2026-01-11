@@ -37,8 +37,12 @@ const ChatPage = () => {
   }, [token]);
 
   useEffect(() => {
-    if (currentChatId) fetchMessages(currentChatId);
-    else setMessages([]);
+    // ONLY fetch if we don't already have messages (prevents overwriting stream)
+    if (currentChatId && messages.length === 0) {
+      fetchMessages(currentChatId);
+    } else if (!currentChatId) {
+      setMessages([]);
+    }
   }, [currentChatId]);
 
   useEffect(() => {
@@ -124,26 +128,108 @@ const ChatPage = () => {
     let chatId = currentChatId;
     const messageText = input;
 
+    // 1. Create chat if it doesn't exist
     if (!chatId) {
       chatId = await createNewChat(messageText);
       if (!chatId) return;
     }
 
+    // 2. Optimistic UI update for user message
     const userMsg = { content: messageText, role: 'user', created_at: new Date() };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setLoading(true);
 
+    // 3. Create a temporary AI message placeholder
+    const aiMsgId = Date.now();
+    const tempAiMsg = { id: aiMsgId, content: '', role: 'assistant', thinking: null, isStreaming: true };
+    setMessages(prev => [...prev, tempAiMsg]);
+
     try {
-      const res = await api.post(`/chats/${chatId}/messages`, {
-        content: messageText,
-        model_type: modelType,
-        thinking_mode: thinkingMode
+      const response = await fetch(`${API_URL}/chats/${chatId}/messages/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          content: messageText,
+          model_type: modelType,
+          thinking_mode: thinkingMode
+        })
       });
-      setMessages(prev => [...prev, res.data.assistant_message]);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to start stream');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = '';
+      let buffer = '';
+
+      console.log("Stream reader initialized");
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          console.log("Stream done");
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+
+        let lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (line.trim().startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.trim().slice(6));
+              console.log("SSE data:", data);
+
+              if (data.chunk) {
+                fullText += data.chunk;
+
+                let thinking = null;
+                let responseText = fullText;
+
+                if (fullText.includes('<thinking>')) {
+                  const tagStart = fullText.indexOf('<thinking>') + 10;
+                  if (fullText.includes('</thinking>')) {
+                    const tagEnd = fullText.indexOf('</thinking>');
+                    thinking = fullText.substring(tagStart, tagEnd).trim();
+                    responseText = fullText.substring(tagEnd + 11).trim();
+                  } else {
+                    thinking = fullText.substring(tagStart).trim();
+                    responseText = '';
+                  }
+                }
+
+                setMessages(prev => prev.map(m =>
+                  m.id === aiMsgId ? { ...m, content: responseText, thinking: thinking } : m
+                ));
+              }
+
+              if (data.error) throw new Error(data.error);
+            } catch (e) {
+              console.error('SSE Parse Error', e);
+            }
+          }
+        }
+      }
+
+      // Finalize the message (remove streaming state)
+      setMessages(prev => prev.map(m =>
+        m.id === aiMsgId ? { ...m, isStreaming: false } : m
+      ));
+
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.detail || 'Message failed');
+      alert(err.message || 'Message failed');
+      // Cleanup placeholder on error
+      setMessages(prev => prev.filter(m => m.id !== aiMsgId));
     } finally {
       setLoading(false);
     }
@@ -274,12 +360,18 @@ const ChatPage = () => {
                           <div className="thinking-text">{msg.thinking}</div>
                         </div>
                       )}
-                      <div className="message-text">{msg.content}</div>
+                      <div className="message-text">
+                        {msg.isStreaming && !msg.content ? (
+                          <div className="typing-dots">
+                            <span></span><span></span><span></span>
+                          </div>
+                        ) : msg.content}
+                      </div>
                     </div>
                   </div>
                 </div>
               ))}
-              {loading && (
+              {loading && !messages.some(m => m.isStreaming) && (
                 <div className="message-row assistant">
                   <div className="message-container">
                     <div className="message-avatar bot-loading"><Bot size={18} /></div>

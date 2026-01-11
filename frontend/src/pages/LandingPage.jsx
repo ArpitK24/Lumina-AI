@@ -175,7 +175,7 @@ const LandingPage = () => {
                     <div className="hero-text">
                         <div className="badge">
                             <Command size={14} />
-                            <span>Neural Network v3.0</span>
+                            <span>Neural Network v1.0</span>
                         </div>
                         <h1 className="hero-title">
                             Intelligence <br />
