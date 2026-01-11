@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from jose import JWTError
@@ -149,6 +150,54 @@ async def send_message(
         "assistant_message": ai_msg,
         "remaining_credits": user.credits
     }
+
+@app.post("/chats/{chat_id}/messages/stream")
+async def send_message_stream(
+    chat_id: int, 
+    data: models.MessageCreate,
+    user: models.User = Depends(get_current_user), 
+    db: SQLSession = Depends(get_db)
+):
+    # Check credits
+    cost = 5 if data.thinking_mode else 1
+    if user.credits < cost:
+        raise HTTPException(status_code=402, detail="Insufficient credits")
+
+    # Save user message immediately
+    user_msg = models.Message(content=data.content, role="user", chat_id=chat_id)
+    db.add(user_msg)
+    db.commit()
+
+    async def event_generator():
+        full_response = ""
+        try:
+            async for chunk in ai_service.ai_service.stream_response(data.content, data.model_type, data.thinking_mode):
+                full_response += chunk
+                # Using a simple JSON format for each chunk to handle special characters
+                import json
+                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+            
+            # After stream ends, save assistant message to DB
+            parsed = ai_service.ai_service._parse_thinking(full_response)
+            ai_msg = models.Message(
+                content=parsed["response"], 
+                role="assistant", 
+                thinking=parsed["thinking"],
+                chat_id=chat_id
+            )
+            db.add(ai_msg)
+            
+            # Deduct credits
+            user.credits -= cost
+            db.add(user)
+            db.commit()
+            
+            yield f"data: {json.dumps({'done': True, 'remaining_credits': user.credits})}\n\n"
+        except Exception as e:
+            print(f"Streaming error: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.get("/chats/{chat_id}/messages", response_model=List[models.Message])
 def get_messages(chat_id: int, user: models.User = Depends(get_current_user), db: SQLSession = Depends(get_db)):
