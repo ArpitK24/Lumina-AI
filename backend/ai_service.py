@@ -15,30 +15,50 @@ class AIService:
         
         if self.gemini_enabled:
             genai.configure(api_key=gemini_key)
-            self.gemini_model = genai.GenerativeModel("gemini-1.5-flash")
-            
-        if self.openai_enabled:
-            self.openai_client = OpenAI(api_key=openai_key)
+            try:
+                # Use the latest major version found in diagnostics (Gemini 2.5 Flash)
+                self.gemini_model = genai.GenerativeModel("gemini-2.5-flash")
+                print("Gemini 2.5 Flash initialized")
+            except Exception as e:
+                print(f"Warning: Failed to init gemini-2.5-flash: {e}")
+                # Fallback to the generic 'latest' identifier
+                self.gemini_model = genai.GenerativeModel("gemini-flash-latest")
+                print("Fallback to Gemini Flash Latest initialized")
 
     async def get_response(self, prompt: str, model_type: str = "gemini", thinking_mode: bool = False):
-        if thinking_mode:
-            # Add a specific instruction for "Thinking"
-            full_prompt = f"System: Please think step by step before answering. Provide your reasoning in a <thinking> block and your actual response after it.\n\nUser: {prompt}"
-        else:
-            full_prompt = prompt
+        try:
+            if thinking_mode:
+                full_prompt = f"System: Please think step by step before answering. Provide your reasoning in a <thinking> block and your actual response after it.\n\nUser: {prompt}"
+            else:
+                full_prompt = prompt
 
-        if model_type == "gemini" and self.gemini_enabled:
-            response = self.gemini_model.generate_content(full_prompt)
-            return self._parse_thinking(response.text)
-        
-        elif model_type == "openai" and self.openai_enabled:
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4-turbo-preview",
-                messages=[{"role": "user", "content": full_prompt}]
-            )
-            return self._parse_thinking(response.choices[0].message.content)
-        
-        return {"response": "AI API key missing or model unavailable.", "thinking": None}
+            if model_type == "gemini" and self.gemini_enabled:
+                print(f"Calling Gemini with prompt length: {len(full_prompt)}")
+                # Use the generative model to get a response asynchronously
+                response = await self.gemini_model.generate_content_async(full_prompt)
+                
+                # Check for empty response or blocked content
+                if not response.parts:
+                    return {"response": "The AI response was blocked by safety filters or is empty.", "thinking": None}
+                
+                return self._parse_thinking(response.text)
+            
+            elif model_type == "openai" and self.openai_enabled:
+                print(f"Calling OpenAI with prompt length: {len(full_prompt)}")
+                response = self.openai_client.chat.completions.create(
+                    model="gpt-4-turbo-preview",
+                    messages=[{"role": "user", "content": full_prompt}]
+                )
+                return self._parse_thinking(response.choices[0].message.content)
+            
+            elif model_type == "openai" and not self.openai_enabled:
+                return {"response": "GPT-4 (OpenAI) is not configured. Please add your API key to use this model or switch to Gemini.", "thinking": None}
+            
+            return {"response": "AI API key missing or model unavailable. Please check your .env file.", "thinking": None}
+            
+        except Exception as e:
+            print(f"AI Service Error: {str(e)}")
+            return {"response": f"I encountered an error while processing your request: {str(e)}", "thinking": None}
 
     def _parse_thinking(self, text: str):
         # Basic parsing of <thinking> blocks if present
